@@ -1,3 +1,6 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_setup/constants.dart';
 import 'package:flutter/material.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -10,9 +13,27 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
+  final messageTextController = TextEditingController();
+  final _firestore = FirebaseFirestore.instance;
+  final _auth = FirebaseAuth.instance;
+  late User loggedInUser;
+  late String messageText;
+
   @override
   void initState() {
+    getCurrentUser();
     super.initState();
+  }
+
+  void getCurrentUser() async {
+    try {
+      final user = _auth.currentUser;
+      if (user != null) {
+        loggedInUser = user;
+      }
+    } catch (e) {
+      print(e);
+    }
   }
 
   @override
@@ -24,18 +45,76 @@ class _ChatScreenState extends State<ChatScreen> {
           IconButton(
               icon: const Icon(Icons.close),
               onPressed: () {
-                // _auth.signOut();
+                _auth.signOut();
                 Navigator.pop(context);
               }),
         ],
         title: const Text('⚡️Chat'),
         backgroundColor: Colors.lightBlueAccent,
       ),
-      body: const SafeArea(
+      body: SafeArea(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[],
+          children: <Widget>[
+            StreamBuilder(
+                stream: _firestore
+                    .collection('messages')
+                    .orderBy('createdAt', descending: true)
+                    .snapshots(),
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  } else {
+                    final message = snapshot.data?.docs;
+                    List<MessageBubble> messages = [];
+                    for (var msg in message!) {
+                      final messageTxt = (msg.data())['text'];
+                      final messageSender = (msg.data())['sender'];
+                      final currentUser = loggedInUser.email;
+                      messages.add(MessageBubble(
+                          messageTxt: messageTxt,
+                          messageSender: messageSender,
+                          isMe: currentUser == messageSender));
+                    }
+                    return Expanded(
+                        child: ListView(reverse: true, children: messages));
+                  }
+                }),
+            Container(
+              decoration: kMessageContainerDecoration,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: <Widget>[
+                  Expanded(
+                    child: TextField(
+                      controller: messageTextController,
+                      onChanged: (value) {
+                        messageText = value;
+                      },
+                      decoration: kMessageTextFieldDecoration,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      messageTextController.clear();
+                      _firestore.collection('messages').add(
+                        {
+                          'text': messageText,
+                          'sender': loggedInUser.email,
+                          'createdAt': DateTime.now(),
+                        },
+                      );
+                    },
+                    child: const Text(
+                      'Send',
+                      style: kSendButtonTextStyle,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
